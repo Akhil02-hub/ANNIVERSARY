@@ -458,11 +458,13 @@
         </div>
         <div class="grid" id="photoGrid"></div>
         <div class="footer">
+            <button class="btn" id="supabaseBtn">☁ Supabase Setup</button>
             <button class="btn" id="exportBtn">Export Backup ⬇</button>
             <button class="btn danger" id="resetBtn">Reset All ↺</button>
         </div>
-        <p class="note">Nothing is saved until you press <strong>Save Changes</strong>. Use Export Backup to keep a
-            copy.</p>
+        <p class="note">Photos upload to your Supabase bucket. Nothing is saved until you press
+            <strong>Save Changes</strong>. Use Export Backup to keep a copy.
+        </p>
     </div>
 
     <!-- ==============================================================
@@ -480,15 +482,17 @@
           ========================================================================== */
         const ADMIN_PASSWORD = "sanjubgm";
         const STORAGE_KEY = "bava_bgm_photos";
-        const SETUP_KEY = "bava_cloudinary_setup";
+        const SETUP_KEY = "bava_supabase_setup";
 
-        // Cloudinary credentials (loaded from setup)
-        let cloudName = "";
-        let uploadPreset = "";
+        // Supabase credentials (loaded from setup)
+        let SUPABASE_URL = "";
+        let SUPABASE_ANON_KEY = "";
+        let SUPABASE_BUCKET = "photos";
         try {
             const s = JSON.parse(localStorage.getItem(SETUP_KEY) || "{}");
-            cloudName = s.cloudName || "";
-            uploadPreset = s.uploadPreset || "";
+            SUPABASE_URL = s.url || "";
+            SUPABASE_ANON_KEY = s.key || "";
+            SUPABASE_BUCKET = s.bucket || "photos";
         } catch (e) { }
 
         // Empty config that matches your main site
@@ -588,6 +592,7 @@
            ========================================================================== */
         tabs.forEach(tab => {
             tab.addEventListener("click", () => {
+                if (!tab.dataset.tab) return;
                 tabs.forEach(t => t.classList.remove("active"));
                 tab.classList.add("active");
                 currentTab = tab.dataset.tab;
@@ -601,8 +606,10 @@
         function save() {
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(CONFIG));
+                return true;
             } catch (e) {
-                alert("Storage full! Try using image URLs instead of uploading files.");
+                alert("Could not save — browser storage is full.");
+                return false;
             }
         }
 
@@ -661,10 +668,11 @@
         globalSaveBtn.addEventListener("click", () => {
             showLoading("Saving changes...");
             setTimeout(() => {
-                save();
-                takeSnapshot();
-                updateSaveBar();
-                renderGrid();
+                if (save()) {
+                    takeSnapshot();
+                    updateSaveBar();
+                    renderGrid();
+                }
                 hideLoading();
             }, 220);
         });
@@ -717,31 +725,33 @@
         }
 
         /* ==========================================================================
-           IMAGE COMPRESSION
+           SUPABASE UPLOAD
            ========================================================================== */
-        function compressImage(file, maxDim, quality) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const img = new Image();
-                    img.onload = () => {
-                        let w = img.width, h = img.height;
-                        if (w > maxDim || h > maxDim) {
-                            const r = Math.min(maxDim / w, maxDim / h);
-                            w = Math.round(w * r);
-                            h = Math.round(h * r);
-                        }
-                        const canvas = document.createElement("canvas");
-                        canvas.width = w; canvas.height = h;
-                        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-                        resolve(canvas.toDataURL("image/jpeg", quality));
-                    };
-                    img.onerror = reject;
-                    img.src = reader.result;
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
+        async function uploadToSupabase(file) {
+            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                throw new Error(
+                    "Supabase is not configured. Click 'Supabase Setup' at the bottom of the page."
+                );
+            }
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+            const fileName = Date.now() + "-" + safeName;
+            const res = await fetch(
+                SUPABASE_URL + "/storage/v1/object/" + SUPABASE_BUCKET + "/" + fileName,
+                {
+                    method: "POST",
+                    headers: {
+                        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+                        "apikey": SUPABASE_ANON_KEY,
+                        "x-upsert": "false"
+                    },
+                    body: file
+                }
+            );
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error("Supabase upload failed: " + text);
+            }
+            return SUPABASE_URL + "/storage/v1/object/public/" + SUPABASE_BUCKET + "/" + fileName;
         }
 
         /* ==========================================================================
@@ -823,34 +833,20 @@
                     });
                 });
 
-                // Upload — stores in CONFIG only (via Cloudinary or base64)
+                // Upload — sends the file to Supabase Storage, keeps the returned URL
                 fileInput.addEventListener("change", async (e) => {
                     const file = e.target.files[0];
                     if (!file) return;
                     e.target.value = "";
-                    showLoading("Uploading photo...");
+                    showLoading("Uploading to Supabase...");
                     try {
-                        let finalUrl = "";
-                        if (cloudName && uploadPreset) {
-                            const formData = new FormData();
-                            formData.append("file", file);
-                            formData.append("upload_preset", uploadPreset);
-                            const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-                                method: "POST",
-                                body: formData
-                            });
-                            if (!res.ok) throw new Error("Upload failed");
-                            const data = await res.json();
-                            finalUrl = data.secure_url;
-                        } else {
-                            finalUrl = await compressImage(file, 1600, 0.85);
-                        }
+                        const finalUrl = await uploadToSupabase(file);
                         setValue(item.key, finalUrl);
                         previewImg.src = finalUrl;
-                        urlInput.value = "";
+                        urlInput.value = finalUrl;
                         markChanged();
                     } catch (err) {
-                        alert("Upload failed. Try a smaller file or set up Cloudinary.");
+                        alert(err.message || "Upload failed. Check your Supabase setup.");
                     } finally {
                         hideLoading();
                     }
@@ -940,6 +936,56 @@
                 e.returnValue = "";
             }
         });
+
+        /* ==========================================================================
+           SUPABASE SETUP BUTTON
+           ========================================================================== */
+        (function initSupabaseSetup() {
+            const supabaseBtn = document.getElementById("supabaseBtn");
+            if (!supabaseBtn) return;
+
+            function refreshLabel() {
+                supabaseBtn.textContent = (SUPABASE_URL && SUPABASE_ANON_KEY)
+                    ? "☁ Supabase ✓"
+                    : "☁ Supabase Setup";
+            }
+            refreshLabel();
+
+            supabaseBtn.addEventListener("click", () => {
+                const url = prompt(
+                    "Supabase Project URL:\n(e.g. https://abcd1234.supabase.co)\n\nLeave empty to disable.",
+                    SUPABASE_URL || ""
+                );
+                if (url === null) return;
+
+                let key = "";
+                let bucket = "photos";
+                if (url.trim()) {
+                    key = prompt("Supabase anon/public API key:", SUPABASE_ANON_KEY || "");
+                    if (key === null) return;
+                    bucket = prompt("Bucket name:", SUPABASE_BUCKET || "photos");
+                    if (bucket === null) return;
+                }
+
+                SUPABASE_URL = url.trim().replace(/\/+$/, "");
+                SUPABASE_ANON_KEY = key.trim();
+                SUPABASE_BUCKET = (bucket.trim() || "photos");
+
+                localStorage.setItem(SETUP_KEY, JSON.stringify({
+                    url: SUPABASE_URL,
+                    key: SUPABASE_ANON_KEY,
+                    bucket: SUPABASE_BUCKET
+                }));
+                refreshLabel();
+
+                alert(
+                    (SUPABASE_URL && SUPABASE_ANON_KEY)
+                        ? "Supabase connected ✓\n\nBucket: " + SUPABASE_BUCKET
+                        : "Supabase disabled."
+                );
+            });
+        })();
+
     </script>
 </body>
 
