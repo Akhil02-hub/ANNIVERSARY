@@ -7773,6 +7773,55 @@
             await loadPhotos();
             applyAdjustments();
             applyPhotos();
+
+            /* Rebuild film scenes with loaded photos */
+            (function () {
+                function setPhoto(el, key, label, seed) {
+                    if (!el) return;
+                    var src = (CONFIG.filmPhotos && CONFIG.filmPhotos[key]) || "";
+                    el.src = src && src.trim() !== "" ? src : placeholderSVG(label, seed);
+                }
+                setPhoto(document.getElementById("sc3Img"), "portrait", "BGM", 1);
+                document.querySelectorAll(".mont-slide").forEach(function (s, i) {
+                    setPhoto(s.querySelector("img"), CONFIG.montage[i].key, "Moment " + (i + 1), i + 10);
+                });
+                document.querySelectorAll(".col-card").forEach(function (c, i) {
+                    setPhoto(c.querySelector("img"), ["c1", "c2", "c3", "c4", "c5", "c6"][i], "Memory", i + 20);
+                });
+                document.querySelectorAll(".heart-photo").forEach(function (h, j) {
+                    setPhoto(h.querySelector("img"), ["h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10"][j], "Us", j + 30);
+                });
+                setPhoto(document.getElementById("finalImg"), "final", CONFIG.girlfriend, 40);
+            })();
+
+            /* Rebuild secret gallery with loaded photos */
+            (function () {
+                const grid = document.querySelector(".secret-grid");
+                if (!grid) return;
+                grid.innerHTML = "";
+                (CONFIG.secretPhotos || ["", "", "", ""]).forEach(function (src, i) {
+                    const img = document.createElement("img");
+                    img.src = src && src.trim() !== "" ? src : placeholderSVG("Kiss " + (i + 1), i);
+                    img.alt = "Secret Memory";
+                    img.loading = "lazy";
+                    grid.appendChild(img);
+                });
+            })();
+
+            /* Rebuild goofball gallery with loaded photos */
+            (function () {
+                const grid = document.querySelector(".goofball-grid");
+                if (!grid) return;
+                grid.innerHTML = "";
+                (CONFIG.goofballPhotos || ["", "", "", ""]).forEach(function (src, i) {
+                    const img = document.createElement("img");
+                    img.src = src && src.trim() !== "" ? src : placeholderSVG("Goofball " + (i + 1), i);
+                    img.alt = "Goofball Memory";
+                    img.loading = "lazy";
+                    grid.appendChild(img);
+                });
+            })();
+
             observeAll();
 
             // Safety: if something was already in view before observer ran
