@@ -6320,17 +6320,39 @@
         CONFIG.secretPhotos = ["", "", "", ""];
         CONFIG.goofballPhotos = ["", "", "", ""];
         CONFIG.adjustments = {};
-        try {
-            const saved = JSON.parse(localStorage.getItem("bava_bgm_photos") || "{}");
-            if (saved.photos) saved.photos.forEach((p, i) => { if (i < CONFIG.photos.length) CONFIG.photos[i] = p; });
-            if (saved.filmPhotos) Object.keys(saved.filmPhotos).forEach(k => { if (CONFIG.filmPhotos[k] !== undefined) CONFIG.filmPhotos[k] = saved.filmPhotos[k]; });
-            if (saved.secretPhotos) CONFIG.secretPhotos = saved.secretPhotos;
-            if (saved.goofballPhotos) CONFIG.goofballPhotos = saved.goofballPhotos;
-            if (saved.adjustments) CONFIG.adjustments = saved.adjustments;
-        } catch (e) { console.warn("No admin photos found."); }
+
+        // ⚠️ YOUR SUPABASE DETAILS
+        const SUPABASE_URL = "https://fscykxkmuxvlsfyhqczs.supabase.co";
+        const SUPABASE_BUCKET = "anniversary";
+
+        async function loadPhotos() {
+            try {
+                // 1. Try to load from Supabase cloud first
+                const res = await fetch(SUPABASE_URL + "/storage/v1/object/public/" + SUPABASE_BUCKET + "/config.json?" + Date.now());
+                if (res.ok) {
+                    const saved = await res.json();
+                    if (saved.photos) saved.photos.forEach((p, i) => { if (i < CONFIG.photos.length) CONFIG.photos[i] = p; });
+                    if (saved.filmPhotos) Object.keys(saved.filmPhotos).forEach(k => { if (CONFIG.filmPhotos[k] !== undefined) CONFIG.filmPhotos[k] = saved.filmPhotos[k]; });
+                    if (saved.secretPhotos) CONFIG.secretPhotos = saved.secretPhotos;
+                    if (saved.goofballPhotos) CONFIG.goofballPhotos = saved.goofballPhotos;
+                    if (saved.adjustments) CONFIG.adjustments = saved.adjustments;
+                    return;
+                }
+            } catch (e) { console.warn("Cloud fetch failed, using local storage."); }
+
+            // 2. Fallback to local storage if cloud fails
+            try {
+                const saved = JSON.parse(localStorage.getItem("bava_bgm_photos") || "{}");
+                if (saved.photos) saved.photos.forEach((p, i) => { if (i < CONFIG.photos.length) CONFIG.photos[i] = p; });
+                if (saved.filmPhotos) Object.keys(saved.filmPhotos).forEach(k => { if (CONFIG.filmPhotos[k] !== undefined) CONFIG.filmPhotos[k] = saved.filmPhotos[k]; });
+                if (saved.secretPhotos) CONFIG.secretPhotos = saved.secretPhotos;
+                if (saved.goofballPhotos) CONFIG.goofballPhotos = saved.goofballPhotos;
+                if (saved.adjustments) CONFIG.adjustments = saved.adjustments;
+            } catch (e) { console.warn("No admin photos found."); }
+        }
 
         /* Apply saved adjustments to photos on the main site */
-        (function applyAdjustments() {
+        function applyAdjustments() {
             $$("img[data-photo]").forEach(img => {
                 const i = parseInt(img.getAttribute("data-photo"), 10);
                 const adj = CONFIG.adjustments["photos[" + i + "]"];
@@ -6348,7 +6370,7 @@
                     img.style.transform = "scale(" + (adj.zoom / 100) + ")";
                 }
             });
-        })();
+        }
 
         CONFIG.scenes = [
             { name: "sc1", start: 0.0, end: 4.2 },
@@ -7747,7 +7769,9 @@
         /* ==========================================================================
            BOOT
            ========================================================================== */
-        (function boot() {
+        (async function boot() {
+            await loadPhotos();
+            applyAdjustments();
             applyPhotos();
             observeAll();
 

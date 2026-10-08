@@ -603,9 +603,29 @@
         /* ==========================================================================
            SAVE / LOAD
            ========================================================================== */
+        async function saveConfigToSupabase() {
+            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+            try {
+                const blob = new Blob([JSON.stringify(CONFIG)], { type: 'application/json' });
+                await fetch(
+                    SUPABASE_URL + "/storage/v1/object/" + SUPABASE_BUCKET + "/config.json",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+                            "apikey": SUPABASE_ANON_KEY,
+                            "x-upsert": "true"
+                        },
+                        body: blob
+                    }
+                );
+            } catch (e) { console.error("Failed to save config to cloud", e); }
+        }
+
         function save() {
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(CONFIG));
+                saveConfigToSupabase(); // This uploads the list to Supabase!
                 return true;
             } catch (e) {
                 alert("Could not save — browser storage is full.");
